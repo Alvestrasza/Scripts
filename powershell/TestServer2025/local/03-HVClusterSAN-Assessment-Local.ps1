@@ -355,20 +355,67 @@ catch {
 }
 
 try {
-    $deviceGuard = Get-CimInstance -Namespace "root\Microsoft\Windows\DeviceGuard" -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue
+    $deviceGuardStatus = $null
+    $deviceGuardRemark = "DeviceGuard CIM query completed."
+
+    try {
+        $deviceGuardRaw = Get-CimInstance `
+            -Namespace "root\Microsoft\Windows\DeviceGuard" `
+            -ClassName Win32_DeviceGuard `
+            -OperationTimeoutSec 15 `
+            -ErrorAction Stop
+
+        $deviceGuardStatus = $deviceGuardRaw | Select-Object `
+            PSComputerName,
+            SecurityServicesConfigured,
+            SecurityServicesRunning,
+            RequiredSecurityProperties,
+            AvailableSecurityProperties,
+            VirtualizationBasedSecurityStatus,
+            CodeIntegrityPolicyEnforcementStatus,
+            UsermodeCodeIntegrityPolicyEnforcementStatus,
+            Version
+    }
+    catch {
+        $deviceGuardRemark = "DeviceGuard CIM query failed or timed out. Registry values were collected as fallback."
+
+        $deviceGuardStatus = [pscustomobject]@{
+            ComputerName = $env:COMPUTERNAME
+            QueryStatus  = "FailedOrTimedOut"
+            Error        = $_.Exception.Message
+        }
+    }
+
     $cg = Get-RegistryValueSafe -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+    $deviceGuardRegistry = Get-RegistryValueSafe -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard"
     $hvci = Get-RegistryValueSafe -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity"
+
+    $securitySummary = [pscustomobject]@{
+        ComputerName                         = $env:COMPUTERNAME
+        DeviceGuardCimStatus                 = $deviceGuardStatus
+        CredentialGuard_LsaCfgFlags          = $cg.LsaCfgFlags
+        DeviceGuard_EnableVBS                = $deviceGuardRegistry.EnableVirtualizationBasedSecurity
+        DeviceGuard_RequirePlatformSecurity  = $deviceGuardRegistry.RequirePlatformSecurityFeatures
+        HVCI_Enabled                         = $hvci.Enabled
+        HVCI_WasEnabledBy                    = $hvci.WasEnabledBy
+        HVCI_EnabledBootId                   = $hvci.EnabledBootId
+    }
 
     Add-TestResult `
         -Area "Special Server 2025" `
         -TestCase "Local VBS Credential Guard HVCI check" `
         -ExpectedResult "VBS, Credential Guard and HVCI state are documented on the local node." `
         -Status "ManualReview" `
-        -Remark "LsaCfgFlags=$($cg.LsaCfgFlags); HVCI Enabled=$($hvci.Enabled)" `
-        -Data @{ DeviceGuard = $deviceGuard; CredentialGuard = $cg; HVCI = $hvci }
+        -Remark "$deviceGuardRemark LsaCfgFlags=$($cg.LsaCfgFlags); HVCI Enabled=$($hvci.Enabled)" `
+        -Data $securitySummary
 }
 catch {
-    Add-TestResult -Area "Special Server 2025" -TestCase "Local VBS Credential Guard HVCI check" -ExpectedResult "Security feature state can be queried locally." -Status "NotSuccessful" -Remark $_.Exception.Message
+    Add-TestResult `
+        -Area "Special Server 2025" `
+        -TestCase "Local VBS Credential Guard HVCI check" `
+        -ExpectedResult "Security feature state can be queried locally." `
+        -Status "NotSuccessful" `
+        -Remark $_.Exception.Message
 }
 
 try {
