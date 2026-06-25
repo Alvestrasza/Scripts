@@ -56,6 +56,8 @@ $OutputRootFolder = ".\"
 
 -RunClusterValidation `
 
+-NodeFqdnSuffix "mgmt.customer.local" `
+
 -WindowsAdminCenterUrl "https://wac.customer.local"
 
 

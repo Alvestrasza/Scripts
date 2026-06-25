@@ -20,10 +20,11 @@ Organization  : Alvestrasza Corporation
 #>
 
 param(
-    [string]$OutputRoot = "D:\CustomerTests\Server2025",
+    [string]$OutputRoot = ".\Logs",
     [string]$ClusterName = "",
     [string[]]$ExpectedNodes = @(),
     [switch]$RunClusterValidation,
+    [string]$NodeFqdnSuffix = "",
     [string]$WindowsAdminCenterUrl = ""
 )
 
@@ -98,7 +99,53 @@ catch {
     Add-TestResult -Area "Cluster" -TestCase "Cluster service check" -ExpectedResult "Cluster nodes can be queried." -Status "NotSuccessful" -Remark $_.Exception.Message
 }
 
-$nodeNames = @(Get-ClusterNode -Cluster $ClusterName | Select-Object -ExpandProperty Name)
+# Resolve cluster node names to FQDNs when required.
+# This is important in environments using Remote Credential Guard,
+# Kerberos-only authentication, cross-domain administration, or strict SPN validation.
+
+$clusterNodes = @(Get-ClusterNode -Cluster $ClusterName | Select-Object -ExpandProperty Name)
+
+function Convert-ToNodeFqdn {
+    param(
+        [Parameter(Mandatory)]
+        [string]$NodeName,
+
+        [string]$Suffix = ""
+    )
+
+    if ($NodeName -match "\.") {
+        return $NodeName.ToLower()
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Suffix)) {
+        return "$NodeName.$Suffix".ToLower()
+    }
+
+    try {
+        $dnsResult = Resolve-DnsName -Name $NodeName -Type A -ErrorAction Stop |
+            Select-Object -First 1
+
+        if ($dnsResult.Name -match "\.") {
+            return $dnsResult.Name.ToLower().TrimEnd(".")
+        }
+    }
+    catch {
+        Write-Warning "Could not resolve FQDN for node '$NodeName'. Falling back to short name."
+    }
+
+    return $NodeName
+}
+
+$nodeNames = @(
+    foreach ($node in $clusterNodes) {
+        Convert-ToNodeFqdn -NodeName $node -Suffix $NodeFqdnSuffix
+    }
+)
+
+Write-Host "Cluster nodes used for PowerShell remoting:" -ForegroundColor Cyan
+$nodeNames | ForEach-Object {
+    Write-Host "  $_" -ForegroundColor Cyan
+}
 
 # Network: Management connectivity
 try {
