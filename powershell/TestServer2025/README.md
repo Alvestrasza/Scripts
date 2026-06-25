@@ -5,54 +5,84 @@
 ### Allgemein
 
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+
 $OutputRootFolder = ".\"
 
 ### Standalone Host – nur Prüfung
 
 .\01-HVStandalone-Assessment.ps1 `
+
 -OutputRoot $OutputRootFolder `
+
 -ManagementTargets @("192.168.10.1","HVHOST01") `
+
 -ExpectedSwitches @("vSwitch-MGMT","vSwitch-VM","vSwitch-SRIOV") `
+
 -SecondSwitchName "vSwitch-SRIOV" `
+
 -TestVmName "HVST-TEST-VM01" `
+
 -WindowsAdminCenterUrl "https://wac.customer.local"
 
 ### Standalone Host – aktive VM-Tests
 
 .\02-HVStandalone-ActiveTests.ps1 `
+
 -OutputRoot $OutputRootFolder `
+
 -TestVmName "HVST-TEST-VM01" `
+
 -SwitchName "vSwitch-VM" `
+
 -CreateTestVm `
+
 -StartTestVm `
+
 -TestLiveConfiguration `
+
 -RunExportBackupTest `
+
 -RunRestoreImportTest
 
 ### Cluster/SAN – nur Prüfung
 
 .\03-HVClusterSAN-Assessment.ps1 `
+
 -OutputRoot $OutputRootFolder `
+
 -ClusterName "HVCLUSTER01" `
+
 -ExpectedNodes @("HVNODE01","HVNODE02") `
+
 -RunClusterValidation `
+
 -WindowsAdminCenterUrl "https://wac.customer.local"
+
 
 ### Cluster/SAN – aktive HA-Tests
 
 .\04-HVClusterSAN-ActiveTests.ps1 `
+
 -OutputRoot $OutputRootFolder `
+
 -ClusterName "HVCLUSTER01" `
+
 -TestVmClusterRoleName "VM-HVCL-TEST01" `
+
 -TargetNode "HVNODE02" `
+
 -AllowLiveMigration
 
 ### Performance Capture
 
 .\05-Performance-Capture.ps1 `
+
 -OutputRoot "D:\CustomerTests\Server2025" `
+
 -ComputerName @("HVNODE01","HVNODE02") `
+
 -SampleIntervalSeconds 5 `
+
 -MaxSamples 24
 
 ## Anmerkungen
