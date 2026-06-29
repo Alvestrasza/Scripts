@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "file_name": "training_rules.example.json",
+    "version": "v0.1.0",
+    "created": "2026-06-29",
+    "last_modified": "2026-06-29",
+    "author": "Alice Endelgard / Nouramon Alvestrasza",
+    "organization": "Alvestrasza Corporation",
+    "description": "Example rules for Solana swap training evaluation."
+  },
+  "training_name": "Swap Training 2026-06-29",
+  "timezone": "Europe/Berlin",
+  "start_time": "2026-06-29T18:00:00+02:00",
+  "end_time": "2026-06-29T20:00:00+02:00",
+  "tokens": {
+    "So11111111111111111111111111111111111111112": {
+      "symbol": "SOL",
+      "name": "Native SOL / Wrapped SOL mint reference"
+    },
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": {
+      "symbol": "USDC",
+      "name": "USD Coin"
+    }
+  },
+  "required_swaps": [
+    {
+      "name": "Round 1 - SOL to USDC",
+      "from_mint": "So11111111111111111111111111111111111111112",
+      "to_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "min_input": "0.001",
+      "max_input": "0.05",
+      "min_output": "0",
+      "sol_fee_tolerance": "0.01"
+    }
+  ]
+}
