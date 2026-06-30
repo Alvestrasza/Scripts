@@ -1,0 +1,31 @@
+{
+  "_meta": {
+    "file_name": "HVClusterPerfConfig.json",
+    "version": "v0.1.1",
+    "created": "2026-06-30",
+    "last_modified": "2026-06-30",
+    "author": "Nouramon Alvestrasza",
+    "organization": "Alvestrasza Corporation",
+    "description": "Configuration template for Windows Server 2019 Hyper-V SAN cluster performance collection."
+  },
+  "CollectorName": "HVCluster-HostPerf",
+  "RootPath": "D:\\PerfLogs\\HVClusterPerf",
+  "DefaultCounterFile": "counters\\HostCounters-English.txt",
+  "SampleInterval": "00:00:15",
+  "IncidentSampleInterval": "00:00:05",
+  "MaxFileSizeMB": 4096,
+  "EventLookbackHours": 12,
+  "ClusterNodes": [],
+  "EventLogs": [
+    "System",
+    "Application",
+    "Microsoft-Windows-FailoverClustering/Operational",
+    "Microsoft-Windows-Hyper-V-VMMS-Admin",
+    "Microsoft-Windows-Hyper-V-Worker-Admin",
+    "Microsoft-Windows-Hyper-V-Hypervisor-Admin",
+    "Microsoft-Windows-Hyper-V-Config-Admin",
+    "Microsoft-Windows-StorageSpaces-Driver/Operational",
+    "Microsoft-Windows-Storage-ClassPnP/Operational",
+    "Microsoft-Windows-NDIS/Operational"
+  ]
+}

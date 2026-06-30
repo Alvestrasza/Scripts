@@ -1,0 +1,78 @@
+# File Name     : HostCounters-English.txt
+# Version       : v0.1.0
+# Created       : 2026-06-30
+# Last Modified : 2026-06-30
+# Author        : Nouramon Alvestrasza
+# Organization  : Alvestrasza Corporation
+# Description   : English Hyper-V host performance counter list for Windows Server 2019 cluster analysis.
+#
+# Note:
+# Performance counter names are localized on some Windows installations. Run
+# scripts\Test-HVClusterPerfCounters.ps1 before creating collectors.
+
+\Processor Information(_Total)\% Processor Time
+\Processor Information(*)\% Processor Time
+\Processor Information(*)\% Privileged Time
+\Processor Information(*)\% DPC Time
+\Processor Information(*)\% Interrupt Time
+\System\Processor Queue Length
+
+\Hyper-V Hypervisor Logical Processor(_Total)\% Total Run Time
+\Hyper-V Hypervisor Logical Processor(*)\% Total Run Time
+\Hyper-V Hypervisor Root Virtual Processor(*)\% Total Run Time
+\Hyper-V Hypervisor Virtual Processor(*)\% Guest Run Time
+\Hyper-V Hypervisor Virtual Processor(*)\% Hypervisor Run Time
+
+\Memory\Available MBytes
+\Memory\Pages/sec
+\Memory\Page Reads/sec
+\Memory\Committed Bytes
+\Memory\Commit Limit
+\Paging File(_Total)\% Usage
+\Cache\Dirty Pages
+
+\Hyper-V Dynamic Memory Balancer(*)\Available Memory
+\Hyper-V Dynamic Memory VM(*)\Guest Visible Physical Memory
+\Hyper-V Dynamic Memory VM(*)\Physical Memory
+\Hyper-V Dynamic Memory VM(*)\Pressure
+
+\PhysicalDisk(*)\Avg. Disk sec/Read
+\PhysicalDisk(*)\Avg. Disk sec/Write
+\PhysicalDisk(*)\Disk Reads/sec
+\PhysicalDisk(*)\Disk Writes/sec
+\PhysicalDisk(*)\Disk Read Bytes/sec
+\PhysicalDisk(*)\Disk Write Bytes/sec
+\PhysicalDisk(*)\Avg. Disk Read Queue Length
+\PhysicalDisk(*)\Avg. Disk Write Queue Length
+\PhysicalDisk(*)\Current Disk Queue Length
+\PhysicalDisk(*)\Split IO/sec
+
+\LogicalDisk(*)\% Free Space
+\LogicalDisk(*)\Free Megabytes
+\LogicalDisk(*)\Avg. Disk sec/Read
+\LogicalDisk(*)\Avg. Disk sec/Write
+\LogicalDisk(*)\Disk Transfers/sec
+\LogicalDisk(*)\Disk Bytes/sec
+
+\Network Interface(*)\Bytes Total/sec
+\Network Interface(*)\Bytes Received/sec
+\Network Interface(*)\Bytes Sent/sec
+\Network Interface(*)\Packets/sec
+\Network Interface(*)\Output Queue Length
+\Network Interface(*)\Packets Received Errors
+\Network Interface(*)\Packets Outbound Errors
+\Network Interface(*)\Packets Received Discarded
+\Network Interface(*)\Packets Outbound Discarded
+
+\TCPv4\Segments Retransmitted/sec
+\TCPv4\Connection Failures
+\TCPv4\Connections Reset
+\TCPv6\Segments Retransmitted/sec
+\TCPv6\Connection Failures
+\TCPv6\Connections Reset
+
+\Hyper-V Virtual Network Adapter(*)\Bytes/sec
+\Hyper-V Virtual Network Adapter(*)\Packets/sec
+\Hyper-V Virtual Switch(*)\Bytes/sec
+\Hyper-V Virtual Switch Port(*)\Bytes/sec
+\Hyper-V Virtual Switch Port(*)\Dropped Packets/sec

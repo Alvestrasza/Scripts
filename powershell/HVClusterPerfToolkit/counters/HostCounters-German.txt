@@ -1,0 +1,86 @@
+# File Name     : HostCounters-German.txt
+# Version       : v0.1.0
+# Created       : 2026-06-30
+# Last Modified : 2026-06-30
+# Author        : Nouramon Alvestrasza
+# Organization  : Alvestrasza Corporation
+# Description   : German Hyper-V host performance counter list for Windows Server 2019 cluster analysis.
+#
+# Important:
+# Performance counter names are localized and can differ by OS language, build, installed roles,
+# and language packs. Validate this file before production use:
+#   .\scripts\Test-HVClusterPerfCounters.ps1 -CounterFile .\counters\HostCounters-German.txt
+#
+# If multiple counters are missing, generate an exact localized file on the target host:
+#   .\scripts\Convert-HVClusterPerfCountersToLocalized.ps1 `
+#       -SourceCounterFile .\counters\HostCounters-English.txt `
+#       -OutputCounterFile .\counters\HostCounters-German-Generated.txt `
+#       -LanguageId 007 `
+#       -Validate
+
+\Prozessorinformationen(_Total)\% Prozessorzeit
+\Prozessorinformationen(*)\% Prozessorzeit
+\Prozessorinformationen(*)\% Privilegierte Zeit
+\Prozessorinformationen(*)\% DPC-Zeit
+\Prozessorinformationen(*)\% Interruptzeit
+\System\Prozessor-Warteschlangenlänge
+
+\Hyper-V Hypervisor Logischer Prozessor(_Total)\% Gesamtlaufzeit
+\Hyper-V Hypervisor Logischer Prozessor(*)\% Gesamtlaufzeit
+\Hyper-V Hypervisor Virtueller Basisprozessor(*)\% Gesamtlaufzeit
+\Hyper-V Hypervisor Virtueller Prozessor(*)\% Gastlaufzeit
+\Hyper-V Hypervisor Virtueller Prozessor(*)\% Hypervisor-Laufzeit
+
+\Arbeitsspeicher\Verfügbare MBytes
+\Arbeitsspeicher\Seiten/Sek.
+\Arbeitsspeicher\Seitenlesevorgänge/Sek.
+\Arbeitsspeicher\Zugesicherte Bytes
+\Arbeitsspeicher\Grenzwert für zugesicherten Speicher
+\Auslagerungsdatei(_Total)\Belegung (%)
+\Cache\Geänderte Seiten
+
+\Hyper-V Dynamischer Speicherausgleich(*)\Verfügbarer Arbeitsspeicher
+\Hyper-V Dynamischer Arbeitsspeicher-VM(*)\Für Gast sichtbarer physischer Arbeitsspeicher
+\Hyper-V Dynamischer Arbeitsspeicher-VM(*)\Physischer Arbeitsspeicher
+\Hyper-V Dynamischer Arbeitsspeicher-VM(*)\Druck
+
+\Physischer Datenträger(*)\Durchschn. Datenträger sec/Lesevorgang
+\Physischer Datenträger(*)\Durchschn. Datenträger sec/Schreibvorgang
+\Physischer Datenträger(*)\Lesevorgänge/s
+\Physischer Datenträger(*)\Schreibvorgänge/s
+\Physischer Datenträger(*)\Bytes gelesen/s
+\Physischer Datenträger(*)\Bytes geschrieben/s
+\Physischer Datenträger(*)\Durchschnittl. Warteschlangenlänge der Datenträger-Lesevorgänge
+\Physischer Datenträger(*)\Durchschnittl. Warteschlangenlänge der Datenträger-Schreibvorgänge
+\Physischer Datenträger(*)\Aktuelle Warteschlangenlänge
+\Physischer Datenträger(*)\Geteilte E/A/s
+
+\Logischer Datenträger(*)\Freier Speicherplatz (%)
+\Logischer Datenträger(*)\Freie Megabytes
+\Logischer Datenträger(*)\Durchschn. Datenträger sec/Lesevorgang
+\Logischer Datenträger(*)\Durchschn. Datenträger sec/Schreibvorgang
+\Logischer Datenträger(*)\Übertragungen/s
+\Logischer Datenträger(*)\Bytes/s
+
+\Netzwerkschnittstelle(*)\Bytes/Sek.
+\Netzwerkschnittstelle(*)\Empfangene Bytes/s
+\Netzwerkschnittstelle(*)\Gesendete Bytes/s
+\Netzwerkschnittstelle(*)\Pakete/s
+\Netzwerkschnittstelle(*)\Länge der Ausgabewarteschlange
+\Netzwerkschnittstelle(*)\Empfangene Pakete mit Fehlern
+\Netzwerkschnittstelle(*)\Ausgehende Pakete mit Fehlern
+\Netzwerkschnittstelle(*)\Empfangene Pakete verworfen
+\Netzwerkschnittstelle(*)\Ausgehende Pakete verworfen
+
+\TCPv4\Erneut übertragene Segmente/s
+\TCPv4\Verbindungsfehler
+\TCPv4\Zurückgesetzte Verbindungen
+\TCPv6\Erneut übertragene Segmente/s
+\TCPv6\Verbindungsfehler
+\TCPv6\Zurückgesetzte Verbindungen
+
+\Virtueller Hyper-V-Netzwerkadapter(*)\Bytes/s
+\Virtueller Hyper-V-Netzwerkadapter(*)\Pakete/s
+\Virtueller Hyper-V-Switch(*)\Bytes/s
+\Virtueller Hyper-V-Switchport(*)\Bytes/s
+\Virtueller Hyper-V-Switchport(*)\Verworfene Pakete/s
