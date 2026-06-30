@@ -1,95 +1,47 @@
-# Solana Swap Training Tracker v0.2.2
+# Solana Swap Training Tracker v0.2.3
 
-<!--
-File Name     : README_solana_swap_training_tracker_v0.2.2.md
-Version       : v0.2.2
-Created       : 2026-06-29
-Last Modified : 2026-06-29
-Author        : Alice Endelgard / Nouramon Alvestrasza
-Organization  : Alvestrasza Corporation
-Description   : Usage notes for the privacy-preserving Solana swap training tracker with Solscan Pro and Solana RPC holder snapshots.
--->
+Privacy-preserving Solana swap training analysis for anonymous wallet groups.
 
-## Purpose
+## What changed in v0.2.3
 
-This tool evaluates Solana swap training exercises without linking participant names to wallet addresses.
+- Added configurable request pacing / wait logic.
+- By default the script waits after every 10 RPC/API requests.
+- This helps with public Solana RPC endpoints that start timing out or rate-limiting after a short burst of requests.
 
-It supports two holder snapshot modes:
-
-1. `snapshot-holders` using Solscan Pro API.
-2. `snapshot-holders-rpc` using Solana JSON-RPC `getProgramAccounts` only.
-
-The RPC mode is intended for users who do not have access to Solscan Pro endpoints.
-
-## Install
+## Analyze with wait after 10 requests
 
 ```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-```
-
-The script uses only Python standard-library modules.
-
-## Create holder snapshot without Solscan Pro
-
-```powershell
-python .\solana_swap_training_tracker_v0.2.2.py snapshot-holders-rpc `
-  --source-token-mint "TOKEN_X_MINT_ADDRESS" `
-  --rpc-url "https://api.mainnet-beta.solana.com" `
-  --min-amount "0.000001" `
-  --output holder_snapshot.csv
-```
-
-For large tokens, the public Solana RPC endpoint may reject or rate-limit the request. Use a dedicated RPC endpoint if that happens.
-
-## Token-2022
-
-For Token-2022 mints, use the Token-2022 program ID:
-
-```powershell
-python .\solana_swap_training_tracker_v0.2.2.py snapshot-holders-rpc `
-  --source-token-mint "TOKEN_X_MINT_ADDRESS" `
-  --token-program-id "TokenzQdBNbLqP5VEhdkAS6EPFAbf6Zp6EGH4Wk8BBQP" `
-  --no-data-size-filter `
-  --output holder_snapshot.csv
-```
-
-## Analyze swaps
-
-```powershell
-python .\solana_swap_training_tracker_v0.2.2.py analyze `
+python .\solana_swap_training_tracker.py analyze `
   --wallets holder_snapshot.csv `
   --rules training_rules.example.json `
   --public-output swap_training_public_results.csv `
   --html-output swap_training_public_report.html `
-  --private-output "" `
-  --events-output ""
+  --rate-limit-calls 1 `
+  --rate-limit-wait-seconds 1
 ```
 
-## Privacy model
+The two new parameters are:
 
-The public report contains:
+| Parameter | Meaning |
+|---|---|
+| `--rate-limit-calls 10` | Wait after every 10 RPC/API requests |
+| `--rate-limit-wait-seconds 15` | Wait 15 seconds before continuing |
 
-- wallet_id, for example `W000001`
-- rule name
-- status
-- expected and actual token direction
+Use `--rate-limit-calls 0` to disable request pacing.
 
-The public report intentionally does not contain:
+## Holder snapshot via RPC with wait
 
-- participant names
-- wallet addresses
-
-The holder snapshot itself still contains wallet addresses because the analyzer needs them. Treat it as private evidence data.
-
-## v0.2.2 CSV Compatibility Fix
-
-Version v0.2.2 fixes the analyzer input reader. Holder snapshot files are written as semicolon-separated CSV files for German Excel compatibility, while older analyzer code expected comma-separated CSV files. The analyzer now auto-detects comma, semicolon, or tab delimiters.
-
-If you saw this error, use v0.2.2:
-
-```text
-ERROR: Wallet source CSV must contain a 'wallet' column.
+```powershell
+python .\solana_swap_training_tracker.py snapshot-holders-rpc `
+  --source-token-mint "TOKEN_X_MINT_ADDRESS" `
+  --min-amount "0.000001" `
+  --output holder_snapshot.csv `
+  --rate-limit-calls 10 `
+  --rate-limit-wait-seconds 15
 ```
 
+## Notes
+
+- Public RPC endpoints can still fail for large tokens or many wallets.
+- If this happens, increase `--rate-limit-wait-seconds` to `30` or use a dedicated Solana RPC provider.
+- The public report still contains only pseudonymous wallet IDs, not names and not wallet addresses.

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# File Name     : solana_swap_training_tracker_v0.2.2.py
-# Version       : v0.2.2
+# File Name     : solana_swap_training_tracker_v0.2.3.py
+# Version       : v0.2.3
 # Created       : 2026-06-29
 # Last Modified : 2026-06-29
 # Author        : Alice Endelgard / Nouramon Alvestrasza
 # Organization  : Alvestrasza Corporation
-# Description   : Snapshot anonymous Solana token holders via Solscan Pro or Solana RPC and evaluate swap training transactions without linking names to wallets. Supports comma and semicolon CSV input.
+# Description   : Snapshot anonymous Solana token holders via Solscan Pro or Solana RPC and evaluate swap training transactions without linking names to wallets. Supports comma and semicolon CSV input plus configurable request pacing.
 
 """
 Solana Swap Training Tracker
@@ -54,6 +54,32 @@ class RpcError(RuntimeError):
 
 class SolscanError(RuntimeError):
     """Raised when the Solscan Pro API endpoint returns an error."""
+
+
+@dataclass
+class RateLimiter:
+    """Simple request pacing helper for public RPC/API endpoints.
+
+    Every network attempt counts as one call. When the configured number of
+    calls has been reached, the script waits before continuing. This is useful
+    for public Solana RPC endpoints that start timing out or rate-limiting after
+    a burst of requests.
+    """
+
+    calls: int = 0
+    wait_seconds: float = 0.0
+    counter: int = 0
+
+    def wait_if_needed(self) -> None:
+        if self.calls <= 0 or self.wait_seconds <= 0:
+            return
+        if self.counter > 0 and self.counter % self.calls == 0:
+            print(
+                f"Rate limit: waiting {self.wait_seconds:g}s after {self.counter} requests ...",
+                file=sys.stderr,
+            )
+            time.sleep(self.wait_seconds)
+        self.counter += 1
 
 
 @dataclass
@@ -209,7 +235,14 @@ def write_wallet_sources(path: Path, wallets: List[WalletSource]) -> None:
             writer.writerow(wallet.__dict__)
 
 
-def rpc_call(rpc_url: str, method: str, params: List[Any], timeout: int = 30, retries: int = 3) -> Any:
+def rpc_call(
+    rpc_url: str,
+    method: str,
+    params: List[Any],
+    timeout: int = 30,
+    retries: int = 3,
+    rate_limiter: Optional[RateLimiter] = None,
+) -> Any:
     payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode("utf-8")
     request = urllib.request.Request(
         rpc_url,
@@ -221,6 +254,8 @@ def rpc_call(rpc_url: str, method: str, params: List[Any], timeout: int = 30, re
     last_error: Optional[BaseException] = None
     for attempt in range(1, retries + 1):
         try:
+            if rate_limiter:
+                rate_limiter.wait_if_needed()
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 body = response.read().decode("utf-8")
                 data = json.loads(body)
@@ -236,7 +271,15 @@ def rpc_call(rpc_url: str, method: str, params: List[Any], timeout: int = 30, re
     raise RpcError(f"RPC call failed after {retries} attempts: {method}: {last_error}")
 
 
-def solscan_get(api_base_url: str, api_key: str, path: str, query: Dict[str, Any], timeout: int = 30, retries: int = 3) -> Dict[str, Any]:
+def solscan_get(
+    api_base_url: str,
+    api_key: str,
+    path: str,
+    query: Dict[str, Any],
+    timeout: int = 30,
+    retries: int = 3,
+    rate_limiter: Optional[RateLimiter] = None,
+) -> Dict[str, Any]:
     clean_base = api_base_url.rstrip("/")
     encoded_query = urllib.parse.urlencode({key: value for key, value in query.items() if value is not None and value != ""})
     url = f"{clean_base}{path}?{encoded_query}"
@@ -252,6 +295,8 @@ def solscan_get(api_base_url: str, api_key: str, path: str, query: Dict[str, Any
     last_error: Optional[BaseException] = None
     for attempt in range(1, retries + 1):
         try:
+            if rate_limiter:
+                rate_limiter.wait_if_needed()
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 data = json.loads(response.read().decode("utf-8"))
                 if data.get("success") is False:
@@ -273,6 +318,7 @@ def snapshot_holders_solscan(
     min_amount: Optional[str],
     max_pages: int,
     page_size: int,
+    rate_limiter: Optional[RateLimiter] = None,
 ) -> List[WalletSource]:
     wallets: List[WalletSource] = []
     seen_owners: set[str] = set()
@@ -289,6 +335,7 @@ def snapshot_holders_solscan(
                 "page_size": page_size,
                 "from_amount": min_amount,
             },
+            rate_limiter=rate_limiter,
         )
         data = response.get("data") or {}
         items = data.get("items") or []
@@ -342,6 +389,7 @@ def snapshot_holders_rpc(
     min_amount: Optional[str],
     token_program_id: str,
     include_data_size_filter: bool,
+    rate_limiter: Optional[RateLimiter] = None,
 ) -> List[WalletSource]:
     """Create a holder snapshot from Solana RPC getProgramAccounts.
 
@@ -366,6 +414,7 @@ def snapshot_holders_rpc(
         ],
         timeout=120,
         retries=3,
+        rate_limiter=rate_limiter,
     )
 
     min_amount_decimal = parse_decimal(min_amount, ZERO) or ZERO
@@ -425,6 +474,7 @@ def get_signatures_for_wallet(
     end_ts: int,
     max_pages: int,
     page_limit: int,
+    rate_limiter: Optional[RateLimiter] = None,
 ) -> List[Dict[str, Any]]:
     signatures: List[Dict[str, Any]] = []
     before: Optional[str] = None
@@ -434,7 +484,7 @@ def get_signatures_for_wallet(
         if before:
             config["before"] = before
 
-        result = rpc_call(rpc_url, "getSignaturesForAddress", [wallet, config])
+        result = rpc_call(rpc_url, "getSignaturesForAddress", [wallet, config], rate_limiter=rate_limiter)
         if not result:
             break
 
@@ -456,7 +506,11 @@ def get_signatures_for_wallet(
     return signatures
 
 
-def get_transaction(rpc_url: str, signature: str) -> Optional[Dict[str, Any]]:
+def get_transaction(
+    rpc_url: str,
+    signature: str,
+    rate_limiter: Optional[RateLimiter] = None,
+) -> Optional[Dict[str, Any]]:
     return rpc_call(
         rpc_url,
         "getTransaction",
@@ -468,6 +522,7 @@ def get_transaction(rpc_url: str, signature: str) -> Optional[Dict[str, Any]]:
                 "maxSupportedTransactionVersion": 0,
             },
         ],
+        rate_limiter=rate_limiter,
     )
 
 
@@ -837,12 +892,22 @@ def write_public_html_report(path: Path, rows: List[RuleResult], rules: Dict[str
     path.write_text(html_content, encoding="utf-8")
 
 
+def build_rate_limiter(args: argparse.Namespace) -> Optional[RateLimiter]:
+    calls = int(getattr(args, "rate_limit_calls", 0) or 0)
+    wait_seconds = float(getattr(args, "rate_limit_wait_seconds", 0) or 0)
+    if calls <= 0 or wait_seconds <= 0:
+        return None
+    return RateLimiter(calls=calls, wait_seconds=wait_seconds)
+
+
 def command_snapshot_holders(args: argparse.Namespace) -> int:
     api_key = args.solscan_api_key or os.environ.get("SOLSCAN_API_KEY")
     if not api_key:
         raise ValueError("Solscan Pro API key required. Use --solscan-api-key or environment variable SOLSCAN_API_KEY.")
     if args.page_size not in (10, 20, 30, 40):
         raise ValueError("Solscan token holder endpoint supports page sizes 10, 20, 30, or 40.")
+
+    rate_limiter = build_rate_limiter(args)
 
     wallets = snapshot_holders_solscan(
         api_base_url=args.solscan_api_url,
@@ -851,6 +916,7 @@ def command_snapshot_holders(args: argparse.Namespace) -> int:
         min_amount=args.min_amount,
         max_pages=args.max_pages,
         page_size=args.page_size,
+        rate_limiter=rate_limiter,
     )
     if not wallets:
         raise ValueError("No token holders found. Check mint address, minimum amount, and API access.")
@@ -862,12 +928,15 @@ def command_snapshot_holders(args: argparse.Namespace) -> int:
 
 
 def command_snapshot_holders_rpc(args: argparse.Namespace) -> int:
+    rate_limiter = build_rate_limiter(args)
+
     wallets = snapshot_holders_rpc(
         rpc_url=args.rpc_url,
         token_mint=args.source_token_mint,
         min_amount=args.min_amount,
         token_program_id=args.token_program_id,
         include_data_size_filter=not args.no_data_size_filter,
+        rate_limiter=rate_limiter,
     )
     if not wallets:
         raise ValueError("No token holders found. Check mint address, token program, minimum amount, and RPC access.")
@@ -888,6 +957,7 @@ def command_analyze(args: argparse.Namespace) -> int:
 
     all_events: List[SwapEvent] = []
     all_results: List[RuleResult] = []
+    rate_limiter = build_rate_limiter(args)
 
     for source in wallet_sources:
         print(f"Analyzing {source.wallet_id} ...", file=sys.stderr)
@@ -898,6 +968,7 @@ def command_analyze(args: argparse.Namespace) -> int:
             end_ts,
             max_pages=args.max_pages,
             page_limit=args.page_limit,
+            rate_limiter=rate_limiter,
         )
 
         wallet_events: List[SwapEvent] = []
@@ -905,7 +976,7 @@ def command_analyze(args: argparse.Namespace) -> int:
             signature = signature_info.get("signature")
             if not signature:
                 continue
-            tx = get_transaction(args.rpc_url, signature)
+            tx = get_transaction(args.rpc_url, signature, rate_limiter=rate_limiter)
             if not tx:
                 continue
             event = classify_event(source, signature_info, tx)
@@ -935,6 +1006,21 @@ def command_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def add_rate_limit_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--rate-limit-calls",
+        type=int,
+        default=10,
+        help="Number of RPC/API requests before waiting. Use 0 to disable request pacing.",
+    )
+    parser.add_argument(
+        "--rate-limit-wait-seconds",
+        type=float,
+        default=10.0,
+        help="Seconds to wait after --rate-limit-calls requests.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Privacy-preserving Solana swap training tracker.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -947,6 +1033,7 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument("--min-amount", default="0", help="Minimum Token X holding amount for inclusion")
     snapshot.add_argument("--max-pages", type=int, default=25, help="Maximum holder pages to fetch")
     snapshot.add_argument("--page-size", type=int, default=40, help="Holder page size: 10, 20, 30, or 40")
+    add_rate_limit_arguments(snapshot)
     snapshot.set_defaults(func=command_snapshot_holders)
 
     snapshot_rpc = subparsers.add_parser("snapshot-holders-rpc", help="Create an anonymous CSV source from current holders of a token mint using Solana RPC only.")
@@ -956,6 +1043,7 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_rpc.add_argument("--token-program-id", default=SPL_TOKEN_PROGRAM_ID, help="SPL token program ID. Use Token-2022 program ID for Token-2022 mints.")
     snapshot_rpc.add_argument("--min-amount", default="0", help="Minimum Token X holding amount for inclusion")
     snapshot_rpc.add_argument("--no-data-size-filter", action="store_true", help="Disable the dataSize=165 filter, useful for some Token-2022 extension accounts")
+    add_rate_limit_arguments(snapshot_rpc)
     snapshot_rpc.set_defaults(func=command_snapshot_holders_rpc)
 
     analyze = subparsers.add_parser("analyze", help="Analyze anonymous wallets against swap training rules.")
@@ -969,6 +1057,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--rpc-url", default=DEFAULT_RPC_URL, help="Solana JSON-RPC endpoint")
     analyze.add_argument("--max-pages", type=int, default=5, help="Maximum signature pages per wallet")
     analyze.add_argument("--page-limit", type=int, default=1000, help="Signatures per RPC page")
+    add_rate_limit_arguments(analyze)
     analyze.set_defaults(func=command_analyze)
 
     return parser
