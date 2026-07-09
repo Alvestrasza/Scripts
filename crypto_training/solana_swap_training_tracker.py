@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# File Name     : solana_swap_training_tracker_v0.4.0.py
-# Version       : v0.4.0
+# File Name     : solana_swap_training_tracker_v0.4.3.py
+# Version       : v0.4.3
 # Created       : 2026-06-30
 # Last Modified : 2026-06-30
 # Author        : Alice Endelgard / Nouramon Alvestrasza
 # Organization  : Alvestrasza Corporation
-# Description   : Privacy-preserving Solana token-history based swap training analyzer. Uses token-history signatures as a narrow candidate stream and validates wallet-level token/SOL deltas by transaction.
+# Description   : Privacy-preserving Solana token-history based swap training analyzer. Adds Solscan Amount/TokenDecimals normalization for CSV prefiltering.
 
 """
-Solana Swap Training Tracker v0.4.0
+Solana Swap Training Tracker v0.4.3
 
 This version is optimized for large training groups.
 
 Instead of scanning every wallet history, it expects a token-history CSV that
 contains transaction signatures for the token and time window to analyze. For
 those candidate transactions only, it loads the Solana transaction details via
-JSON-RPC and calculates wallet-level Token/SOL deltas.
+JSON-RPC and calculates wallet-level Token/SOL deltas. Version v0.4.3 adds Solscan Amount/TokenDecimals normalization so CSV prefiltering uses human token/SOL amounts instead of raw base units.
 
 No private keys are required. Names are never required. Public reports use
 wallet_id values only.
@@ -82,6 +82,17 @@ class WalletSource:
 class TokenHistorySignature:
     signature: str
     source_block_time: Optional[int] = None
+    human_time: str = ""
+    action: str = ""
+    from_wallet: str = ""
+    token1: str = ""
+    amount1: Optional[Decimal] = None
+    token_decimals1: Optional[int] = None
+    token2: str = ""
+    amount2: Optional[Decimal] = None
+    token_decimals2: Optional[int] = None
+    value: Optional[Decimal] = None
+
 
 
 @dataclass
@@ -118,8 +129,23 @@ class StepResult:
 def parse_decimal(value: Any, default: Optional[Decimal] = None) -> Optional[Decimal]:
     if value is None or value == "":
         return default
+    text = str(value).strip()
+    if not text:
+        return default
+    # Solscan and spreadsheet exports may contain currency symbols, spaces,
+    # or thousands separators. Keep decimal dots intact and strip grouping.
+    text = text.replace("$", "").replace("€", "").replace("SOL", "").replace("sol", "").strip()
+    text = text.replace(" ", "")
+    if "," in text and "." in text:
+        text = text.replace(",", "")
+    elif "," in text and "." not in text:
+        # Be conservative: if this looks like a decimal comma, normalize it.
+        if re.fullmatch(r"-?\d+,\d+", text):
+            text = text.replace(",", ".")
+        else:
+            text = text.replace(",", "")
     try:
-        return Decimal(str(value))
+        return Decimal(text)
     except (InvalidOperation, ValueError) as exc:
         raise ValueError(f"Invalid decimal value: {value!r}") from exc
 
@@ -175,6 +201,30 @@ def normalize_column_name(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower()).strip("_")
 
 
+def extract_solana_signature(value: str) -> str:
+    """Extract a Solana transaction signature from plain cells, URLs, or spreadsheet formulas."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+
+    # Solscan exports are usually plain signatures, but spreadsheet tools may
+    # turn them into formulas or hyperlinks. A Solana signature is base58 and is
+    # commonly around 86-88 chars long. Use a broad but safe range here.
+    base58_chars = r"[1-9A-HJ-NP-Za-km-z]"
+    matches = re.findall(rf"(?<!{base58_chars})({base58_chars}{{80,100}})(?!{base58_chars})", text)
+    if matches:
+        # If a URL/formula contains multiple base58-looking strings, the longest
+        # one is normally the transaction signature.
+        return max(matches, key=len)
+
+    # Fallback for non-standard exports that already contain only the signature
+    # but may have been quoted or surrounded by whitespace.
+    cleaned = text.strip().strip('"').strip("'")
+    if re.fullmatch(rf"{base58_chars}{{40,120}}", cleaned):
+        return cleaned
+    return ""
+
+
 def detect_csv_delimiter(sample: str) -> str:
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=";,\t,")
@@ -228,46 +278,317 @@ def read_wallet_sources(path: Path) -> List[WalletSource]:
     return wallets
 
 
+def parse_optional_decimal(value: str) -> Optional[Decimal]:
+    try:
+        return parse_decimal(value, None)
+    except ValueError:
+        return None
+
+
+def parse_optional_int(value: str) -> Optional[int]:
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        # Some spreadsheet tools may render integer columns as "9.0".
+        return int(Decimal(text))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def normalize_csv_token_amount(
+    amount_value: str,
+    decimals_value: str = "",
+    mode: str = "auto",
+) -> Optional[Decimal]:
+    """Normalize Solscan Amount/TokenDecimals columns to human units.
+
+    Solscan token-history CSV exports commonly store Amount1/Amount2 in raw base
+    units and provide TokenDecimals1/TokenDecimals2 separately. For example:
+    30000000 with decimals 9 means 0.03 SOL, not 30000000 SOL.
+
+    mode:
+      - auto: divide by 10^decimals when a TokenDecimals column is present
+      - raw: always divide by 10^decimals when decimals can be parsed
+      - ui: treat Amount columns as already human-readable
+    """
+    amount = parse_optional_decimal(amount_value)
+    if amount is None:
+        return None
+    normalized_mode = (mode or "auto").lower().strip()
+    if normalized_mode not in {"auto", "raw", "ui"}:
+        raise ValueError("--csv-amount-mode must be auto, raw, or ui.")
+    if normalized_mode == "ui":
+        return amount
+
+    decimals = parse_optional_int(decimals_value)
+    if decimals is None:
+        return amount
+    if decimals < 0 or decimals > 30:
+        return amount
+
+    # In Solscan exports with TokenDecimals columns present, Amount is normally
+    # raw base units. auto intentionally follows that convention.
+    return amount / (Decimal(10) ** decimals)
+
+
 def read_token_history_signatures(
     path: Path,
     start_ts: int,
     end_ts: int,
     naive_tz: timezone,
+    disable_time_prefilter: bool = False,
+    debug_csv: bool = False,
+    csv_amount_mode: str = "auto",
 ) -> List[TokenHistorySignature]:
     rows, normalized_map = read_csv_rows(path)
     signature_aliases = [
         "signature", "tx", "tx_hash", "txhash", "transaction", "transaction_hash", "trans_id", "hash",
-        "signature_hash", "transaction signature",
+        "signature_hash", "transaction signature", "transaction_signature",
     ]
     time_aliases = ["block_time", "time", "date", "timestamp", "block time", "datetime"]
+    human_time_aliases = ["human_time", "human time", "human_date", "human date"]
+    action_aliases = ["action", "activity", "type"]
+    from_aliases = ["from", "signer", "wallet", "owner", "user", "authority"]
+    token1_aliases = ["token1", "token_1", "input_token", "token_in"]
+    token2_aliases = ["token2", "token_2", "output_token", "token_out"]
+    amount1_aliases = ["amount1", "amount_1", "input_amount", "amount_in"]
+    amount2_aliases = ["amount2", "amount_2", "output_amount", "amount_out"]
+    token_decimals1_aliases = ["tokendecimals1", "token_decimals1", "token_decimals_1", "decimals1", "decimals_1"]
+    token_decimals2_aliases = ["tokendecimals2", "token_decimals2", "token_decimals_2", "decimals2", "decimals_2"]
+    value_aliases = ["value", "usd_value", "amount_usd", "value_usd"]
+
+    signature_column = ""
+    for alias in signature_aliases:
+        original = normalized_map.get(normalize_column_name(alias))
+        if original is not None:
+            signature_column = original
+            break
 
     signatures: List[TokenHistorySignature] = []
     seen: set[str] = set()
+    total_rows = 0
+    non_empty_signature_cells = 0
+    parsed_signature_cells = 0
+    time_filtered_rows = 0
+    time_parse_failed_rows = 0
+
     for row in rows:
-        signature = get_by_alias(row, normalized_map, signature_aliases)
-        if not signature or signature in seen:
+        total_rows += 1
+        raw_signature = get_by_alias(row, normalized_map, signature_aliases)
+        if raw_signature:
+            non_empty_signature_cells += 1
+        signature = extract_solana_signature(raw_signature)
+        if not signature:
+            continue
+        parsed_signature_cells += 1
+        if signature in seen:
             continue
         source_ts: Optional[int] = None
         time_value = get_by_alias(row, normalized_map, time_aliases)
+        human_time = get_by_alias(row, normalized_map, human_time_aliases)
         if time_value:
             try:
                 source_ts = parse_datetime_to_ts(time_value, naive_tz)
             except Exception:
+                time_parse_failed_rows += 1
                 source_ts = None
-        # If the CSV has a usable timestamp, pre-filter it. If not, keep the
-        # signature and let on-chain block_time decide after getTransaction.
-        if source_ts is not None and not (start_ts <= source_ts <= end_ts):
+        if source_ts is None and human_time:
+            try:
+                source_ts = parse_datetime_to_ts(human_time, naive_tz)
+            except Exception:
+                time_parse_failed_rows += 1
+                source_ts = None
+
+        # If the CSV has a usable timestamp, pre-filter it unless disabled. If
+        # disabled or no timestamp exists, the on-chain block_time filter still
+        # runs after getTransaction.
+        if not disable_time_prefilter and source_ts is not None and not (start_ts <= source_ts <= end_ts):
+            time_filtered_rows += 1
             continue
+
         seen.add(signature)
-        signatures.append(TokenHistorySignature(signature=signature, source_block_time=source_ts))
+        signatures.append(
+            TokenHistorySignature(
+                signature=signature,
+                source_block_time=source_ts,
+                human_time=human_time,
+                action=get_by_alias(row, normalized_map, action_aliases),
+                from_wallet=get_by_alias(row, normalized_map, from_aliases),
+                token1=get_by_alias(row, normalized_map, token1_aliases),
+                amount1=normalize_csv_token_amount(
+                    get_by_alias(row, normalized_map, amount1_aliases),
+                    get_by_alias(row, normalized_map, token_decimals1_aliases),
+                    csv_amount_mode,
+                ),
+                token_decimals1=parse_optional_int(get_by_alias(row, normalized_map, token_decimals1_aliases)),
+                token2=get_by_alias(row, normalized_map, token2_aliases),
+                amount2=normalize_csv_token_amount(
+                    get_by_alias(row, normalized_map, amount2_aliases),
+                    get_by_alias(row, normalized_map, token_decimals2_aliases),
+                    csv_amount_mode,
+                ),
+                token_decimals2=parse_optional_int(get_by_alias(row, normalized_map, token_decimals2_aliases)),
+                value=parse_optional_decimal(get_by_alias(row, normalized_map, value_aliases)),
+            )
+        )
+
+    if debug_csv or not signatures:
+        print(
+            "Token-history CSV diagnostics: "
+            f"rows={total_rows}, "
+            f"signature_column={signature_column or '<not detected>'}, "
+            f"non_empty_signature_cells={non_empty_signature_cells}, "
+            f"parsed_signature_cells={parsed_signature_cells}, "
+            f"time_filtered_rows={time_filtered_rows}, "
+            f"time_parse_failed_rows={time_parse_failed_rows}, "
+            f"accepted_signatures={len(signatures)}, "
+            f"csv_amount_mode={csv_amount_mode}.",
+            file=sys.stderr,
+        )
 
     if not signatures:
         detected = ", ".join(normalized_map.values())
+        if parsed_signature_cells and time_filtered_rows == parsed_signature_cells:
+            raise ValueError(
+                "Token history CSV contains signatures, but all of them were filtered out by the CSV time window. "
+                "Check rules.start_time/rules.end_time and --history-timezone-offset, or retry with "
+                "--disable-history-time-prefilter. "
+                f"Detected columns: {detected}."
+            )
+        if signature_column and non_empty_signature_cells and parsed_signature_cells == 0:
+            raise ValueError(
+                "A signature column was found, but the values do not look like Solana transaction signatures. "
+                "If Solscan exported links or formulas, export as plain CSV or provide the raw Signature column. "
+                f"Detected columns: {detected}."
+            )
         raise ValueError(
             "No transaction signatures found in token history CSV. "
-            f"Detected columns: {detected}. Expected a column like signature, tx_hash, trans_id, or hash."
+            f"Detected columns: {detected}. Expected a column like Signature, signature, tx_hash, trans_id, or hash."
         )
     return signatures
+
+def label_matches_token(label: str, mint: str, symbol: str = "") -> bool:
+    text = (label or "").strip().lower()
+    if not text:
+        return False
+    mint_text = str(mint or "").strip().lower()
+    symbol_text = str(symbol or "").strip().lower()
+    values = {mint_text, symbol_text}
+    if mint == NATIVE_SOL_MINT:
+        values.update({"sol", "wsol", "wrapped sol", "wrapped solana", "solana"})
+    values = {value for value in values if value}
+    if text in values:
+        return True
+    # Solscan exports may contain labels like "TOKENX (mint...)". Allow
+    # mint substring matches and symbol word-boundary matches, but avoid overly
+    # broad accidental matches for very short symbols.
+    if mint_text and mint_text in text:
+        return True
+    if symbol_text and len(symbol_text) >= 3:
+        return re.search(rf"(^|[^a-z0-9]){re.escape(symbol_text)}([^a-z0-9]|$)", text) is not None
+    return False
+
+
+def infer_csv_trade(item: TokenHistorySignature, rules: Dict[str, Any]) -> Optional[Tuple[str, Decimal, Decimal]]:
+    """Infer direction, token amount and quote amount from Solscan Token1/Token2 columns.
+
+    Returns None if the row is ambiguous. The on-chain transaction check remains
+    the source of truth; this is only used to reduce candidate RPC calls.
+    """
+    token_mint = str(rules.get("token_mint", ""))
+    token_symbol = str(rules.get("token_symbol", ""))
+    quote_mint = str(rules.get("quote_mint", ""))
+    quote_symbol = str(rules.get("quote_symbol", ""))
+
+    t1_is_token = label_matches_token(item.token1, token_mint, token_symbol)
+    t2_is_token = label_matches_token(item.token2, token_mint, token_symbol)
+    t1_is_quote = label_matches_token(item.token1, quote_mint, quote_symbol)
+    t2_is_quote = label_matches_token(item.token2, quote_mint, quote_symbol)
+
+    if t1_is_quote and t2_is_token and item.amount1 is not None and item.amount2 is not None:
+        return "buy", abs(item.amount2), abs(item.amount1)
+    if t1_is_token and t2_is_quote and item.amount1 is not None and item.amount2 is not None:
+        return "sell", abs(item.amount1), abs(item.amount2)
+    return None
+
+
+def row_amount_may_match_step(direction: str, token_amount: Decimal, quote_amount: Decimal, step: Dict[str, Any]) -> bool:
+    # Direction is intentionally not checked here. Wrong-direction trades with
+    # matching value ranges must remain in scope so they can be reported.
+    basis = amount_basis_for_step(step)
+    value = quote_amount if basis == "quote" else token_amount
+    min_value, max_value, tolerance = range_for_step(step, basis)
+    if min_value is not None and value < min_value:
+        return False
+    if max_value is not None and value > max_value + tolerance:
+        return False
+    return True
+
+
+def row_may_belong_to_any_step(
+    item: TokenHistorySignature,
+    rules: Dict[str, Any],
+    global_start: int,
+    global_end: int,
+    naive_tz: timezone,
+) -> bool:
+    inferred = infer_csv_trade(item, rules)
+    if inferred is None:
+        # Keep ambiguous rows; the RPC transaction details will decide.
+        return True
+    direction, token_amount, quote_amount = inferred
+    for step in rules["steps"]:
+        start, end = step_time_window(step, global_start, global_end, naive_tz)
+        if item.source_block_time is not None and not (start <= item.source_block_time <= end):
+            continue
+        if row_amount_may_match_step(direction, token_amount, quote_amount, step):
+            return True
+    return False
+
+
+def prefilter_token_history_rows(
+    history_signatures: List[TokenHistorySignature],
+    wallet_sources: List[WalletSource],
+    rules: Dict[str, Any],
+    global_start: int,
+    global_end: int,
+    naive_tz: timezone,
+    from_wallet_prefilter: str,
+    csv_step_prefilter: bool,
+) -> List[TokenHistorySignature]:
+    original_count = len(history_signatures)
+    filtered = list(history_signatures)
+
+    mode = (from_wallet_prefilter or "auto").lower().strip()
+    if mode not in {"auto", "on", "off"}:
+        raise ValueError("--from-wallet-prefilter must be auto, on, or off.")
+
+    allowed_wallets = {source.wallet for source in wallet_sources}
+    rows_with_from = [item for item in filtered if item.from_wallet]
+    matching_from = [item for item in rows_with_from if item.from_wallet in allowed_wallets]
+
+    if mode == "on":
+        filtered = matching_from
+        print(f"From-wallet prefilter: {original_count} -> {len(filtered)} rows.", file=sys.stderr)
+    elif mode == "auto" and rows_with_from and matching_from:
+        no_from_rows = [item for item in filtered if not item.from_wallet]
+        filtered = matching_from + no_from_rows
+        print(f"From-wallet prefilter auto: {original_count} -> {len(filtered)} rows.", file=sys.stderr)
+    elif mode == "auto" and rows_with_from and not matching_from:
+        print("From-wallet prefilter auto: no overlap with wallet list detected; keeping all rows.", file=sys.stderr)
+
+    before_step_filter = len(filtered)
+    if csv_step_prefilter:
+        filtered = [
+            item for item in filtered
+            if row_may_belong_to_any_step(item, rules, global_start, global_end, naive_tz)
+        ]
+        print(f"CSV step/value prefilter: {before_step_filter} -> {len(filtered)} rows.", file=sys.stderr)
+
+    if not filtered:
+        print("WARNING: token-history prefilter produced zero rows. Disable prefilters if this is unexpected.", file=sys.stderr)
+    return filtered
 
 
 def rpc_call(
@@ -859,8 +1180,28 @@ def command_analyze_token_history(args: argparse.Namespace) -> int:
         raise ValueError("rules.end_time must be later than rules.start_time.")
 
     wallet_sources = read_wallet_sources(Path(args.wallets))
-    history_signatures = read_token_history_signatures(Path(args.token_history), global_start, global_end, naive_tz)
+    history_signatures = read_token_history_signatures(
+        Path(args.token_history),
+        global_start,
+        global_end,
+        naive_tz,
+        disable_time_prefilter=args.disable_history_time_prefilter,
+        debug_csv=args.debug_token_history_csv,
+        csv_amount_mode=args.csv_amount_mode,
+    )
     print(f"Loaded {len(wallet_sources)} wallet IDs and {len(history_signatures)} token-history signatures.", file=sys.stderr)
+
+    history_signatures = prefilter_token_history_rows(
+        history_signatures=history_signatures,
+        wallet_sources=wallet_sources,
+        rules=rules,
+        global_start=global_start,
+        global_end=global_end,
+        naive_tz=naive_tz,
+        from_wallet_prefilter=args.from_wallet_prefilter,
+        csv_step_prefilter=not args.disable_csv_step_prefilter,
+    )
+    print(f"Scanning {len(history_signatures)} token-history signatures after prefiltering.", file=sys.stderr)
 
     rate_limiter = build_rate_limiter(args)
     trades = load_trades_from_token_history(
@@ -926,12 +1267,17 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--rules", required=True, help="JSON training rules file for token-history analysis.")
     analyze.add_argument("--rpc-url", default=DEFAULT_RPC_URL, help="Solana JSON-RPC endpoint used for getTransaction.")
     analyze.add_argument("--history-timezone-offset", default="+00:00", help="Timezone for naive CSV timestamps, for example +00:00 or +02:00.")
+    analyze.add_argument("--disable-history-time-prefilter", action="store_true", help="Do not discard token-history CSV rows by CSV Block Time/Human Time before RPC loading. On-chain block_time is still checked after getTransaction.")
+    analyze.add_argument("--debug-token-history-csv", action="store_true", help="Print token-history CSV diagnostics such as detected signature column and time-filtered row counts.")
     analyze.add_argument("--public-output", default="token_history_public_results.csv", help="Public pseudonymous result CSV path.")
     analyze.add_argument("--summary-output", default="token_history_summary.csv", help="Summary metric CSV path.")
     analyze.add_argument("--private-output", default="token_history_private_evidence.csv", help="Private CSV with wallet addresses; pass empty string to disable.")
     analyze.add_argument("--events-output", default="token_history_private_events.csv", help="Private CSV with detected candidate trades; pass empty string to disable.")
     analyze.add_argument("--html-output", default="token_history_public_report.html", help="Public HTML report path; pass empty string to disable.")
     analyze.add_argument("--include-evidence-links-in-public-report", action="store_true", help="Include Solscan transaction links in the public HTML report.")
+    analyze.add_argument("--from-wallet-prefilter", choices=["auto", "on", "off"], default="auto", help="Use Solscan CSV From column to skip rows outside the wallet list. auto uses it only when overlap is detected.")
+    analyze.add_argument("--csv-amount-mode", choices=["auto", "raw", "ui"], default="auto", help="How to interpret Solscan Amount1/Amount2 columns. auto/raw divide by TokenDecimals when present; ui treats Amount columns as already human-readable.")
+    analyze.add_argument("--disable-csv-step-prefilter", action="store_true", help="Disable prefiltering by Solscan Token1/Token2 Amount1/Amount2 against rule step ranges.")
     add_rate_limit_arguments(analyze)
     analyze.set_defaults(func=command_analyze_token_history)
     return parser

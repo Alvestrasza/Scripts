@@ -1,137 +1,76 @@
-# Solana Swap Training Tracker v0.4.0
+# Solana Swap Training Tracker v0.4.3
 
-This version is intended for large holder lists where per-wallet history scans are too slow.
+Privacy-preserving Solana token-history based swap training analyzer.
 
-## Core idea
+## What changed in v0.4.3
 
-Do not scan 70,000 wallet histories.
+Solscan token-history CSV exports may contain raw base-unit amounts in `Amount1` and `Amount2` while the decimal precision is stored separately in `TokenDecimals1` and `TokenDecimals2`.
 
-Instead:
-
-1. Export or collect the token history for the relevant token and training time window.
-2. Use that history as a candidate stream of transaction signatures.
-3. Fetch only those transaction details via Solana RPC.
-4. Calculate wallet-level Token/SOL balance deltas from the transaction metadata.
-5. Compare only wallets from your anonymous wallet source list.
-
-The public report contains only `wallet_id`, never participant names and never wallet addresses.
-
-## Required files
-
-### 1. Anonymous wallet source
-
-A CSV with at least these columns:
+Example from Solscan:
 
 ```csv
-wallet_id;wallet
-W000001;WalletAddress1
-W000002;WalletAddress2
+Token1,Amount1,TokenDecimals1,Token2,Amount2,TokenDecimals2
+So11111111111111111111111111111111111111112,30000000,9,TokenX,62828895104,9
 ```
 
-You can use an existing holder snapshot CSV. The analyzer only needs `wallet_id` and `wallet`.
+This means:
 
-### 2. Token history CSV
-
-A CSV exported from Solscan or another source. It must contain a transaction signature column. Supported column names include:
-
-- `signature`
-- `tx`
-- `tx_hash`
-- `transaction_hash`
-- `trans_id`
-- `hash`
-
-Optional timestamp columns:
-
-- `block_time`
-- `time`
-- `date`
-- `timestamp`
-
-Example:
-
-```csv
-signature;block_time
-REAL_SIGNATURE_1;2026-06-30T16:01:00+00:00
-REAL_SIGNATURE_2;2026-06-30T16:17:00+00:00
+```text
+30000000 / 10^9 = 0.03 SOL
+62828895104 / 10^9 = 62.828895104 TokenX
 ```
 
-If the CSV timestamps are missing or cannot be parsed, the script still checks the on-chain transaction `blockTime` returned by RPC.
+Earlier versions treated `30000000` as a human amount during the CSV prefilter, so valid training buys such as `0.029–0.032 SOL` were filtered out before the RPC transaction check.
 
-### 3. Training rules
+v0.4.3 normalizes `Amount1/Amount2` with `TokenDecimals1/TokenDecimals2` before applying the CSV step/value prefilter.
 
-Example for your current training pattern:
-
-```json
-{
-  "training_name": "Token X Swap Training - Token History Mode",
-  "token_mint": "TOKEN_X_MINT_ADDRESS",
-  "quote_mint": "So11111111111111111111111111111111111111112",
-  "start_time": "2026-06-30T18:00:00+02:00",
-  "end_time": "2026-06-30T19:00:00+02:00",
-  "steps": [
-    {
-      "name": "1. Buy Token X with SOL",
-      "direction": "buy",
-      "amount_basis": "quote",
-      "min_quote": "0.029",
-      "max_quote": "0.032",
-      "fee_tolerance_quote": "0.003"
-    },
-    {
-      "name": "2. Sell Token X amount X",
-      "direction": "sell",
-      "amount_basis": "token",
-      "min_token": "1000",
-      "max_token": "1000",
-      "token_tolerance": "0.000001"
-    },
-    {
-      "name": "3. Buy Token X with SOL",
-      "direction": "buy",
-      "amount_basis": "quote",
-      "min_quote": "0.029",
-      "max_quote": "0.032",
-      "fee_tolerance_quote": "0.003"
-    }
-  ]
-}
-```
-
-## Recommended: use step time windows
-
-For best detection of wrong direction, define `start_time` and `end_time` for each step.
-
-Without per-step windows, the script treats the steps as an ordered sequence.
-
-## Run command
+## Recommended command
 
 ```powershell
-python .\solana_swap_training_tracker.py analyze-token-history `
+python .\solana_swap_training_tracker_v0.4.3.py analyze-token-history `
   --token-history token_history.csv `
   --wallets holder_snapshot.csv `
-  --rules token_history_rules.example.json `
+  --rules token_history_rules.json `
   --public-output token_history_public_results.csv `
   --summary-output token_history_summary.csv `
   --html-output token_history_public_report.html `
   --private-output "" `
   --events-output "" `
-  --rate-limit-calls 1 `
-  --rate-limit-wait-seconds 1
+  --debug-token-history-csv `
+  --rate-limit-calls 10 `
+  --rate-limit-wait-seconds 10
 ```
 
-## Outputs
+## New option
 
-| File | Purpose |
+```powershell
+--csv-amount-mode auto|raw|ui
+```
+
+Default:
+
+```powershell
+--csv-amount-mode auto
+```
+
+Modes:
+
+| Mode | Meaning |
 |---|---|
-| `token_history_public_results.csv` | Pseudonymous wallet_id-only step results |
-| `token_history_summary.csv` | Summary metrics |
-| `token_history_public_report.html` | Human-readable public report |
-| `token_history_private_evidence.csv` | Optional private evidence with wallet addresses |
-| `token_history_private_events.csv` | Optional private detected token trades |
+| `auto` | If `TokenDecimals1/2` exists, treat `Amount1/2` as raw base units and divide by `10^decimals`. Recommended for Solscan CSV exports. |
+| `raw` | Same normalization behavior as `auto`; useful when you want to state the intent explicitly. |
+| `ui` | Treat `Amount1/2` as already human-readable. Use this only if your CSV already contains values like `0.03` instead of `30000000`. |
 
-## Important limitations
+## Diagnostic hint
 
-- Native SOL balance deltas include transaction fees. Use `fee_tolerance_quote` for SOL buy steps.
-- This validates direction and amount by wallet-level deltas. It is much more precise than plain before/after snapshots, but still depends on the transaction metadata returned by the RPC provider.
-- If a swap uses temporary wrapped SOL accounts, the script combines native SOL deltas and wallet-owned wSOL token deltas where visible in `preTokenBalances` and `postTokenBalances`.
+Run with:
+
+```powershell
+--debug-token-history-csv
+```
+
+The script prints how many rows/signatures were accepted and which CSV amount mode was used.
+
+## Privacy model
+
+The public report contains only pseudonymous wallet IDs. Wallet addresses remain private unless you explicitly enable private output files.
