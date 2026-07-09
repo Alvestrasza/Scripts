@@ -1,0 +1,2 @@
+Signature,Block Time,Human Time,Action,From,Token1,Amount1,TokenDecimals1,Token2,Amount2,TokenDecimals2,Value,Programs,Token1Multiplier,Token2Multiplier
+DUMMY_SIGNATURE,1782842400,2026-06-30 18:00:00,Swap,DUMMY_WALLET,SOL,0.03,9,TOKENX,1000,6,5.00,Jupiter,1,1

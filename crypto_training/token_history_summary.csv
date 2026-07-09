@@ -1,0 +1,9 @@
+metric;value
+total_wallets_in_scope;76156
+candidate_token_trades_in_scope;0
+unique_wallets_with_matching_values;0
+unique_wallets_with_at_least_one_ok_step;0
+unique_wallets_all_steps_ok;0
+unique_wallets_with_wrong_direction;0
+all_swaps_correct_direction;yes
+status_MISSING;228468

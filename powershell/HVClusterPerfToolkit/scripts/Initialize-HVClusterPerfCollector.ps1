@@ -82,7 +82,7 @@ if ($collectorExists) {
     & logman.exe delete $collectorName 2>$null | Out-Null
 }
 
-$args = @(
+$logmanArgs = @(
     'create', 'counter', $collectorName,
     '-cf', $activeCounterFile,
     '-si', $sampleInterval,
@@ -94,7 +94,7 @@ $args = @(
 
 if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, "Create logman collector $collectorName")) {
     Write-Host "Creating collector '$collectorName' on $env:COMPUTERNAME ..."
-    $createResult = Invoke-HVExternalCommand -FilePath 'logman.exe' -ArgumentList $args -OutputFile (Join-Path -Path $rootPath -ChildPath "Initialize-$env:COMPUTERNAME.log")
+    $createResult = Invoke-HVExternalCommand -FilePath 'logman.exe' -ArgumentList $logmanArgs -OutputFile (Join-Path -Path $rootPath -ChildPath "Initialize-$env:COMPUTERNAME.log")
 
     if ($createResult.ExitCode -ne 0) {
         throw "logman collector creation failed with exit code $($createResult.ExitCode). Output: $($createResult.Output)"

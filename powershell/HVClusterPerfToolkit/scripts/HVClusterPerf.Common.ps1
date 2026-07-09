@@ -39,7 +39,7 @@ function Get-HVPropertyValue {
 
     if ($Object.PSObject.Properties.Name -contains $Name) {
         $value = $Object.$Name
-        if ($null -ne $value -and $value -ne '') {
+        if ($null -ne $value -and -not ($value -is [string] -and $value -eq '')) {
             return $value
         }
     }
@@ -359,7 +359,10 @@ function Export-HVEventLogs {
         $query = "*[System[TimeCreated[timediff(@SystemTime) <= $milliseconds]]]"
 
         try {
-            $null = wevtutil.exe epl $logName $evtxPath "/q:$query" /ow:true 2>&1
+            $wevtutilOutput = wevtutil.exe epl $logName $evtxPath "/q:$query" /ow:true 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw "wevtutil.exe failed with exit code $LASTEXITCODE. Output: $($wevtutilOutput -join ' ')"
+            }
             Get-WinEvent -FilterHashtable @{ LogName = $logName; StartTime = (Get-Date).AddHours(-1 * $LookbackHours) } -ErrorAction Stop |
                 Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, MachineName, Message |
                 Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8 -Force
